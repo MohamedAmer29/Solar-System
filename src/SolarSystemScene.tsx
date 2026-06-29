@@ -107,6 +107,11 @@ type TinyPlanet = {
   color: string;
 };
 
+const getMeshRadius = (mesh: THREE.Mesh | null | undefined) => {
+  const geometry = mesh?.geometry as THREE.SphereGeometry | undefined;
+  return geometry?.parameters?.radius ?? 1;
+};
+
 const createAsteroids = (): Asteroid[] => {
   const asteroids: Asteroid[] = [];
   const count = 200;
@@ -190,7 +195,7 @@ function Planet({
 
 const StarField = ({ texture }: { texture: THREE.Texture }) => {
   return (
-    <mesh scale={100}>
+    <mesh scale={90}>
       <sphereGeometry args={[1, 64, 64]} />
       <meshBasicMaterial
         map={texture}
@@ -199,6 +204,35 @@ const StarField = ({ texture }: { texture: THREE.Texture }) => {
       />
     </mesh>
   );
+};
+
+const WebGLContextHandler = ({
+  setContextLost,
+}: {
+  setContextLost: React.Dispatch<React.SetStateAction<boolean>>;
+}) => {
+  const { gl } = useThree();
+
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const onLost = (event: Event) => {
+      event.preventDefault();
+      setContextLost(true);
+    };
+    const onRestored = () => {
+      setContextLost(false);
+    };
+
+    canvas.addEventListener("webglcontextlost", onLost, false);
+    canvas.addEventListener("webglcontextrestored", onRestored, false);
+
+    return () => {
+      canvas.removeEventListener("webglcontextlost", onLost);
+      canvas.removeEventListener("webglcontextrestored", onRestored);
+    };
+  }, [gl, setContextLost]);
+
+  return null;
 };
 
 const SolarSystem = ({
@@ -394,23 +428,29 @@ const Ship = ({
   const boostOscRef = useRef<OscillatorNode | null>(null);
   const { camera } = useThree();
 
-  useEffect(() => {
+  const createAudioContext = () => {
+    if (audioContext.current) return audioContext.current;
     const AudioCtx =
       window.AudioContext ||
       (window as Window & { webkitAudioContext?: typeof AudioContext })
         .webkitAudioContext;
-    if (AudioCtx) {
-      audioContext.current = new AudioCtx();
-    }
+    if (!AudioCtx) return null;
+    audioContext.current = new AudioCtx();
+    return audioContext.current;
+  };
+
+  useEffect(() => {
     return () => {
       audioContext.current?.close();
     };
   }, []);
 
   const playCrashSound = () => {
-    const ctx = audioContext.current;
+    const ctx = createAudioContext();
     if (!ctx) return;
-    if (ctx.state === "suspended") ctx.resume();
+    if (ctx.state === "suspended") {
+      void ctx.resume().catch(() => undefined);
+    }
 
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -426,9 +466,11 @@ const Ship = ({
   };
 
   const updateBoostSound = (boosting: boolean) => {
-    const ctx = audioContext.current;
+    const ctx = createAudioContext();
     if (!ctx) return;
-    if (ctx.state === "suspended") ctx.resume();
+    if (ctx.state === "suspended") {
+      void ctx.resume().catch(() => undefined);
+    }
 
     if (boosting) {
       if (!boostOscRef.current) {
@@ -512,9 +554,7 @@ const Ship = ({
 
       const shipPos = shipRef.current.position;
       if (sunRef.current) {
-        const sunRadius =
-          ((sunRef.current.geometry as THREE.SphereGeometry).parameters as any)
-            .radius ?? 1;
+        const sunRadius = getMeshRadius(sunRef.current);
         const distanceToSun = shipPos.distanceTo(sunRef.current.position);
         if (distanceToSun < sunRadius + 0.35) {
           if (!crashed) {
@@ -527,9 +567,7 @@ const Ship = ({
 
       for (const planet of planetRefs.current) {
         if (!planet) continue;
-        const planetRadius =
-          ((planet.geometry as THREE.SphereGeometry).parameters as any)
-            .radius ?? 1;
+        const planetRadius = getMeshRadius(planet);
         const distance = shipPos.distanceTo(planet.position);
         if (distance < planetRadius + 0.35) {
           if (!crashed) {
@@ -616,6 +654,8 @@ const SolarSystemScene = () => {
     setCrashed(false);
     resetSignal.current = true;
   };
+  const [contextLost, setContextLost] = useState(false);
+
   const handleToggleLight = () => setLightOn((value) => !value);
 
   return (
@@ -623,7 +663,11 @@ const SolarSystemScene = () => {
       id="canvas-container"
       style={{ width: "90vw", height: "90vh", overflow: "hidden" }}
     >
-      <Canvas camera={{ position: [0, 5, 18], fov: 55 }}>
+      <Canvas
+        camera={{ position: [0, 5, 18], fov: 55 }}
+        gl={{ antialias: false, powerPreference: "high-performance" }}
+      >
+        <WebGLContextHandler setContextLost={setContextLost} />
         <SolarSystem
           planetRefs={planetRefs}
           sunRef={sunRef}
@@ -647,6 +691,47 @@ const SolarSystemScene = () => {
         />
         <OrbitControls ref={controlsRef} enableZoom enablePan enableRotate />
       </Canvas>
+      {contextLost && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "rgba(0, 0, 0, 0.9)",
+            color: "white",
+            fontSize: 18,
+            textAlign: "center",
+            padding: "20px",
+            zIndex: 10,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 28, marginBottom: 12 }}>
+              WebGL context lost
+            </div>
+            <div style={{ opacity: 0.85, marginBottom: 20 }}>
+              Try reloading the page or click the button below to recover.
+            </div>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              style={{
+                padding: "10px 18px",
+                border: "none",
+                borderRadius: 6,
+                background: "#5c8dff",
+                color: "white",
+                cursor: "pointer",
+                fontSize: 16,
+              }}
+            >
+              Reload
+            </button>
+          </div>
+        </div>
+      )}
       {crashed && (
         <div
           style={{
