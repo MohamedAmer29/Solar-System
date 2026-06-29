@@ -195,7 +195,7 @@ function Planet({
 
 const StarField = ({ texture }: { texture: THREE.Texture }) => {
   return (
-    <mesh scale={90}>
+    <mesh scale={96}>
       <sphereGeometry args={[1, 64, 64]} />
       <meshBasicMaterial
         map={texture}
@@ -661,7 +661,7 @@ const SolarSystemScene = () => {
   return (
     <div
       id="canvas-container"
-      style={{ width: "90vw", height: "90vh", overflow: "hidden" }}
+      style={{ width: "99vw", height: "97vh", overflow: "hidden" }}
     >
       <Canvas
         camera={{ position: [0, 5, 18], fov: 55 }}
